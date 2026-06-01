@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VULNSCOPE — 脆弱性スキャナー</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0b0f;
+    --surface: #111318;
+    --border: #1e2028;
+    --text: #e8eaf0;
+    --muted: #5a5e6e;
+    --accent: #00e5ff;
+
+    --crit: #ff2d55;
+    --crit-bg: rgba(255,45,85,0.1);
+    --crit-border: rgba(255,45,85,0.35);
+
+    --high: #ff7a00;
+    --high-bg: rgba(255,122,0,0.1);
+    --high-border: rgba(255,122,0,0.35);
+
+    --med: #ffd60a;
+    --med-bg: rgba(255,214,10,0.08);
+    --med-border: rgba(255,214,10,0.3);
+
+    --low: #30d158;
+    --low-bg: rgba(48,209,88,0.08);
+    --low-border: rgba(48,209,88,0.3);
+
+    --info: #636af6;
+    --info-bg: rgba(99,106,246,0.1);
+    --info-border: rgba(99,106,246,0.35);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* GRID TEXTURE */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.015) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 60px 24px 80px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* HEADER */
+  header {
+    margin-bottom: 52px;
+  }
+
+  .logo-line {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 2.2rem;
+    letter-spacing: -0.03em;
+    color: var(--accent);
+  }
+
+  .logo-tag {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.15em;
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 2px;
+  }
+
+  .subtitle {
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  /* INPUT PANEL */
+  .input-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px 28px 24px;
+    margin-bottom: 40px;
+  }
+
+  .panel-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+  }
+
+  .url-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .url-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    padding: 12px 16px;
+    border-radius: 3px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .url-input:focus {
+    border-color: var(--accent);
+  }
+
+  .url-input::placeholder {
+    color: var(--muted);
+  }
+
+  .scan-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    padding: 12px 24px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    white-space: nowrap;
+  }
+
+  .scan-btn:hover { opacity: 0.85; }
+  .scan-btn:active { transform: scale(0.97); }
+  .scan-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* PROGRESS */
+  .progress-wrap {
+    display: none;
+    margin-top: 18px;
+  }
+
+  .progress-wrap.active { display: block; }
+
+  .progress-bar-bg {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 1px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  .progress-log {
+    font-size: 0.7rem;
+    color: var(--accent);
+    opacity: 0.7;
+  }
+
+  /* RESULTS */
+  #results { display: none; }
+
+  .results-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .target-url {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .target-url span {
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* SCORE BAR */
+  .score-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 24px 28px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+
+  .score-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 3.2rem;
+    font-weight: 800;
+    line-height: 1;
+    min-width: 80px;
+  }
+
+  .score-right { flex: 1; }
+
+  .score-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  .severity-pills {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .pill {
+    font-size: 0.68rem;
+    font-family: 'Space Mono', monospace;
+    padding: 4px 10px;
+    border-radius: 2px;
+    letter-spacing: 0.05em;
+  }
+
+  .pill-crit  { background: var(--crit-bg);  color: var(--crit);  border: 1px solid var(--crit-border); }
+  .pill-high  { background: var(--high-bg);  color: var(--high);  border: 1px solid var(--high-border); }
+  .pill-med   { background: var(--med-bg);   color: var(--med);   border: 1px solid var(--med-border); }
+  .pill-low   { background: var(--low-bg);   color: var(--low);   border: 1px solid var(--low-border); }
+  .pill-info  { background: var(--info-bg);  color: var(--info);  border: 1px solid var(--info-border); }
+
+  /* FILTER TABS */
+  .filter-row {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .filter-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    padding: 6px 14px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-btn:hover { border-color: var(--text); color: var(--text); }
+  .filter-btn.active-all  { border-color: var(--accent); color: var(--accent); }
+  .filter-btn.active-crit { border-color: var(--crit);   color: var(--crit); }
+  .filter-btn.active-high { border-color: var(--high);   color: var(--high); }
+  .filter-btn.active-med  { border-color: var(--med);    color: var(--med); }
+  .filter-btn.active-low  { border-color: var(--low);    color: var(--low); }
+  .filter-btn.active-info { border-color: var(--info);   color: var(--info); }
+
+  /* VULN CARDS */
+  .vuln-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .vuln-card {
+    background: var(--surface);
+    border-radius: 3px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  .vuln-card:hover { transform: translateX(3px); }
+
+  .vuln-card-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    border-left: 3px solid transparent;
+  }
+
+  .vuln-card[data-sev="CRITICAL"] .vuln-card-header { border-left-color: var(--crit); }
+  .vuln-card[data-sev="HIGH"]     .vuln-card-header { border-left-color: var(--high); }
+  .vuln-card[data-sev="MEDIUM"]   .vuln-card-header { border-left-color: var(--med); }
+  .vuln-card[data-sev="LOW"]      .vuln-card-header { border-left-color: var(--low); }
+  .vuln-card[data-sev="INFO"]     .vuln-card-header { border-left-color: var(--info); }
+
+  .sev-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .vuln-card[data-sev="CRITICAL"] .sev-dot { background: var(--crit); box-shadow: 0 0 8px var(--crit); }
+  .vuln-card[data-sev="HIGH"]     .sev-dot { background: var(--high); box-shadow: 0 0 8px var(--high); }
+  .vuln-card[data-sev="MEDIUM"]   .sev-dot { background: var(--med);  box-shadow: 0 0 6px var(--med); }
+  .vuln-card[data-sev="LOW"]      .sev-dot { background: var(--low); }
+  .vuln-card[data-sev="INFO"]     .sev-dot { background: var(--info); }
+
+  .vuln-name {
+    flex: 1;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.88rem;
+  }
+
+  .vuln-badge {
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    padding: 3px 8px;
+    border-radius: 2px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .vuln-card[data-sev="CRITICAL"] .vuln-badge { background: var(--crit-bg);  color: var(--crit);  border: 1px solid var(--crit-border); }
+  .vuln-card[data-sev="HIGH"]     .vuln-badge { background: var(--high-bg);  color: var(--high);  border: 1px solid var(--high-border); }
+  .vuln-card[data-sev="MEDIUM"]   .vuln-badge { background: var(--med-bg);   color: var(--med);   border: 1px solid var(--med-border); }
+  .vuln-card[data-sev="LOW"]      .vuln-badge { background: var(--low-bg);   color: var(--low);   border: 1px solid var(--low-border); }
+  .vuln-card[data-sev="INFO"]     .vuln-badge { background: var(--info-bg);  color: var(--info);  border: 1px solid var(--info-border); }
+
+  .chevron {
+    color: var(--muted);
+    font-size: 0.75rem;
+    transition: transform 0.2s;
+  }
+
+  .vuln-card.open .chevron { transform: rotate(90deg); }
+
+  /* EXPAND BODY */
+  .vuln-body {
+    display: none;
+    padding: 0 18px 16px 41px;
+    font-size: 0.78rem;
+    line-height: 1.7;
+    color: #a0a4b8;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+
+  .vuln-card.open .vuln-body { display: block; }
+
+  .vuln-body-section { margin-bottom: 12px; }
+  .vuln-body-section:last-child { margin-bottom: 0; }
+
+  .vb-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .cvss-badge {
+    display: inline-block;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 2px 10px;
+    border-radius: 2px;
+  }
+
+  /* DISCLAIMER */
+  .disclaimer {
+    margin-top: 32px;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 0.68rem;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  /* LOADING SPINNER for scan btn */
+  .spin { display: inline-block; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ANIMATE IN */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .vuln-card { animation: fadeUp 0.3s ease both; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <header>
+    <div class="logo-line">
+      <div class="logo">VULNSCOPE</div>
+      <div class="logo-tag">AI POWERED</div>
+    </div>
+    <div class="subtitle">// ウェブサイト脆弱性スキャナー — AIによる自動解析</div>
+  </header>
+
+  <div class="input-panel">
+    <div class="panel-label">// ターゲット URL を入力</div>
+    <div class="url-row">
+      <input type="text" class="url-input" id="urlInput" placeholder="https://example.com" value="">
+      <button class="scan-btn" id="scanBtn" onclick="startScan()">SCAN →</button>
+    </div>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-log" id="progressLog">initializing...</div>
+    </div>
+  </div>
+
+  <div id="results">
+    <div class="results-header">
+      <div class="target-url">スキャン対象: <span id="resultUrl"></span></div>
+    </div>
+
+    <div class="score-block" id="scoreBlock">
+      <div class="score-num" id="scoreNum">—</div>
+      <div class="score-right">
+        <div class="score-label">// リスクスコア &amp; 検出サマリー</div>
+        <div class="severity-pills" id="severityPills"></div>
+      </div>
+    </div>
+
+    <div class="filter-row" id="filterRow"></div>
+    <div class="vuln-list" id="vulnList"></div>
+
+    <div class="disclaimer">
+      ⚠ このツールはAIによる推定です。実際のペネトレーションテストや本番環境での使用前に、専門家による確認を推奨します。
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API_URL = "https://api.anthropic.com/v1/messages";
+
+const LOGS = [
+  "DNS解決中...",
+  "HTTPヘッダー取得...",
+  "SSL/TLS証明書確認...",
+  "セキュリティヘッダー検査...",
+  "既知CVEデータベース照合...",
+  "認証フロー分析...",
+  "インジェクションポイント探索...",
+  "設定ミス検出...",
+  "解析レポート生成中..."
+];
+
+let currentFilter = "ALL";
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function animateProgress(msgs) {
+  const fill = document.getElementById('progressFill');
+  const log  = document.getElementById('progressLog');
+  for (let i = 0; i < msgs.length; i++) {
+    fill.style.width = ((i + 1) / msgs.length * 90) + '%';
+    log.textContent = msgs[i];
+    await sleep(320 + Math.random() * 200);
+  }
+}
+
+async function startScan() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return;
+
+  const btn = document.getElementById('scanBtn');
+  const progressWrap = document.getElementById('progressWrap');
+  const results = document.getElementById('results');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">◌</span>';
+  results.style.display = 'none';
+  progressWrap.classList.add('active');
+  document.getElementById('progressFill').style.width = '0%';
+
+  const progressPromise = animateProgress(LOGS);
+
+  const prompt = `あなたはウェブセキュリティの専門家です。
+URLが「${url}」のウェブサイトについて、典型的な脆弱性をリアルに推定してください。
+URLのドメインや種類から推測できる業界・用途を考慮してください。
+
+以下のJSON形式のみで回答してください。説明文やMarkdownは不要です。
+
+{
+  "riskScore": 数値(0-100),
+  "summary": "一行の総評（日本語）",
+  "vulnerabilities": [
+    {
+      "name": "脆弱性名（英語か日本語）",
+      "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO",
+      "cvss": 数値(0.0-10.0),
+      "description": "脆弱性の説明（日本語、2〜3文）",
+      "impact": "悪用された場合の影響（日本語）",
+      "recommendation": "推奨対策（日本語）"
+    }
+  ]
+}
+
+脆弱性は7〜12件含めてください。CRITICALを1〜2件、HIGHを2〜3件、MEDIUMを2〜3件、LOWを1〜2件、INFOを1〜2件程度にしてください。`;
+
+  let data;
+  try {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    data = await res.json();
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = 'SCAN →';
+    progressWrap.classList.remove('active');
+    alert('エラーが発生しました: ' + e.message);
+    return;
+  }
+
+  await progressPromise;
+  document.getElementById('progressFill').style.width = '100%';
+  document.getElementById('progressLog').textContent = '完了';
+  await sleep(400);
+
+  const text = (data.content || []).map(b => b.text || '').join('');
+  let parsed;
+  try {
+    const clean = text.replace(/```json|```/g, '').trim();
+    parsed = JSON.parse(clean);
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = 'SCAN →';
+    progressWrap.classList.remove('active');
+    alert('解析に失敗しました。もう一度お試しください。');
+    return;
+  }
+
+  renderResults(url, parsed);
+
+  btn.disabled = false;
+  btn.innerHTML = 'SCAN →';
+  progressWrap.classList.remove('active');
+  results.style.display = 'block';
+}
+
+function renderResults(url, data) {
+  document.getElementById('resultUrl').textContent = url;
+
+  // Score color
+  const score = data.riskScore ?? 0;
+  const scoreEl = document.getElementById('scoreNum');
+  scoreEl.textContent = score;
+  scoreEl.style.color = score >= 80 ? 'var(--crit)' :
+                        score >= 60 ? 'var(--high)' :
+                        score >= 40 ? 'var(--med)' :
+                        score >= 20 ? 'var(--low)' : 'var(--info)';
+
+  // Pills
+  const vulns = data.vulnerabilities || [];
+  const counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, INFO:0 };
+  vulns.forEach(v => { if (counts[v.severity] !== undefined) counts[v.severity]++; });
+
+  const pillsEl = document.getElementById('severityPills');
+  pillsEl.innerHTML = '';
+  const pillMap = {
+    CRITICAL: ['pill-crit', 'CRIT'],
+    HIGH:     ['pill-high', 'HIGH'],
+    MEDIUM:   ['pill-med',  'MED'],
+    LOW:      ['pill-low',  'LOW'],
+    INFO:     ['pill-info', 'INFO']
+  };
+  Object.entries(counts).forEach(([sev, cnt]) => {
+    if (!cnt) return;
+    const p = document.createElement('span');
+    p.className = 'pill ' + pillMap[sev][0];
+    p.textContent = pillMap[sev][1] + ' ×' + cnt;
+    pillsEl.appendChild(p);
+  });
+
+  // Filter buttons
+  const filterRow = document.getElementById('filterRow');
+  filterRow.innerHTML = '';
+  const filters = ['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
+  filters.forEach(f => {
+    const b = document.createElement('button');
+    b.className = 'filter-btn' + (f === currentFilter ? ' active-' + f.toLowerCase() : '');
+    b.textContent = f === 'ALL' ? 'ALL (' + vulns.length + ')' :
+      f + ' (' + (counts[f] || 0) + ')';
+    b.onclick = () => setFilter(f, vulns);
+    filterRow.appendChild(b);
+  });
+
+  renderVulns(vulns);
+  currentFilter = 'ALL';
+}
+
+function setFilter(f, vulns) {
+  currentFilter = f;
+  // re-render filter btns
+  document.querySelectorAll('.filter-btn').forEach((b, i) => {
+    const labels = ['ALL','CRITICAL','HIGH','MEDIUM','LOW','INFO'];
+    b.className = 'filter-btn' + (labels[i] === f ? ' active-' + labels[i].toLowerCase() : '');
+  });
+  renderVulns(vulns);
+}
+
+function renderVulns(vulns) {
+  const list = document.getElementById('vulnList');
+  list.innerHTML = '';
+
+  const filtered = currentFilter === 'ALL' ? vulns :
+    vulns.filter(v => v.severity === currentFilter);
+
+  const sevOrder = { CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4 };
+  filtered.sort((a,b) => (sevOrder[a.severity]??9) - (sevOrder[b.severity]??9));
+
+  filtered.forEach((v, i) => {
+    const card = document.createElement('div');
+    card.className = 'vuln-card';
+    card.setAttribute('data-sev', v.severity);
+    card.style.animationDelay = (i * 50) + 'ms';
+
+    const cvssColor = v.cvss >= 9 ? 'var(--crit)' :
+                      v.cvss >= 7 ? 'var(--high)' :
+                      v.cvss >= 4 ? 'var(--med)'  :
+                      v.cvss >= 1 ? 'var(--low)'  : 'var(--info)';
+
+    card.innerHTML = `
+      <div class="vuln-card-header">
+        <div class="sev-dot"></div>
+        <div class="vuln-name">${escHtml(v.name)}</div>
+        <div class="vuln-badge">${v.severity}</div>
+        <div class="chevron">▶</div>
+      </div>
+      <div class="vuln-body">
+        <div class="vuln-body-section">
+          <div class="vb-label">// CVSS スコア</div>
+          <span class="cvss-badge" style="color:${cvssColor}">${v.cvss.toFixed(1)}</span>
+        </div>
+        <div class="vuln-body-section">
+          <div class="vb-label">// 説明</div>
+          ${escHtml(v.description)}
+        </div>
+        <div class="vuln-body-section">
+          <div class="vb-label">// 影響</div>
+          ${escHtml(v.impact)}
+        </div>
+        <div class="vuln-body-section">
+          <div class="vb-label">// 推奨対策</div>
+          ${escHtml(v.recommendation)}
+        </div>
+      </div>`;
+
+    card.querySelector('.vuln-card-header').addEventListener('click', () => {
+      card.classList.toggle('open');
+    });
+
+    list.appendChild(card);
+  });
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+// Enter key
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startScan();
+});
+</script>
+
+</body>
+</html>
