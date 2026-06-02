@@ -511,28 +511,27 @@ async function startScan() {
 
   const progressPromise = animateProgress(LOGS);
 
-  const prompt = `あなたはウェブセキュリティの専門家です。
-URLが「${url}」のウェブサイトについて、典型的な脆弱性をリアルに推定してください。
-URLのドメインや種類から推測できる業界・用途を考慮してください。
+  const prompt = `You are a web security expert.
+Analyze the URL "${url}" and simulate 8 realistic vulnerabilities based on its likely industry/tech stack.
 
-以下のJSON形式のみで回答してください。説明文やMarkdownは不要です。
+CRITICAL: Return ONLY a valid raw JSON object. Do NOT wrap in markdown \`\`\`json blocks. Do NOT include any introductory or concluding text.
 
 {
-  "riskScore": 数値(0-100),
-  "summary": "一行の総評（日本語）",
+  "riskScore": 75,
+  "summary": "総評を日本語1文で",
   "vulnerabilities": [
     {
-      "name": "脆弱性名（英語か日本語）",
+      "name": "脆弱性名",
       "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO",
-      "cvss": 数値(0.0-10.0),
-      "description": "脆弱性の説明（日本語、2〜3文）",
-      "impact": "悪用された場合の影響（日本語）",
-      "recommendation": "推奨対策（日本語）"
+      "cvss": 9.8,
+      "description": "説明(日本語2文)",
+      "impact": "影響(日本語)",
+      "recommendation": "対策(日本語)"
     }
   ]
 }
 
-脆弱性は8件含めてください。CRITICAL 1件、HIGH 2件、MEDIUM 2件、LOW 2件、INFO 1件。`;
+Generate exactly 8 items (CRITICAL:1, HIGH:2, MEDIUM:2, LOW:2, INFO:1). Keep text concise to avoid truncation.`;
 
   let data;
   try {
@@ -544,7 +543,7 @@ URLのドメインや種類から推測できる業界・用途を考慮して�
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 3000,
+        max_tokens: 4000,
         messages: [{ role: "user", content: prompt }]
       })
     });
@@ -553,7 +552,7 @@ URLのドメインや種類から推測できる業界・用途を考慮して�
     btn.disabled = false;
     btn.innerHTML = 'SCAN →';
     progressWrap.classList.remove('active');
-    alert('エラーが発生しました: ' + e.message);
+    alert('ネットワークエラーが発生しました: ' + e.message);
     return;
   }
 
@@ -562,16 +561,27 @@ URLのドメインや種類から推測できる業界・用途を考慮して�
   document.getElementById('progressLog').textContent = '完了';
   await sleep(400);
 
-  const text = (data.content || []).map(b => b.text || '').join('');
+  if (data.error) {
+    btn.disabled = false;
+    btn.innerHTML = 'SCAN →';
+    progressWrap.classList.remove('active');
+    alert('APIエラー: ' + data.error.message);
+    return;
+  }
+
+  const text = (data.content || []).map(b => b.text || '').join('').trim();
   let parsed;
   try {
-    const clean = text.replace(/```json|```/g, '').trim();
-    parsed = JSON.parse(clean);
+    // JSON部分だけを最悪抽出できるように前方・後方のゴミをトリミング
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("JSON形式のデータが見つかりませんでした。");
+    parsed = JSON.parse(jsonMatch[0]);
   } catch(e) {
     btn.disabled = false;
     btn.innerHTML = 'SCAN →';
     progressWrap.classList.remove('active');
-    const preview = text.substring(0,200); alert('JSONパース失敗。レスポンス先頭: ' + preview + ' ... エラー: ' + e.message);
+    const preview = text.substring(0, 200);
+    alert('解析失敗。レスポンス内容:\n' + (preview || '(空パケット)') + '\n\nエラー: ' + e.message);
     return;
   }
 
@@ -586,7 +596,6 @@ URLのドメインや種類から推測できる業界・用途を考慮して�
 function renderResults(url, data) {
   document.getElementById('resultUrl').textContent = url;
 
-  // Score color
   const score = data.riskScore ?? 0;
   const scoreEl = document.getElementById('scoreNum');
   scoreEl.textContent = score;
@@ -595,7 +604,6 @@ function renderResults(url, data) {
                         score >= 40 ? 'var(--med)' :
                         score >= 20 ? 'var(--low)' : 'var(--info)';
 
-  // Pills
   const vulns = data.vulnerabilities || [];
   const counts = { CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, INFO:0 };
   vulns.forEach(v => { if (counts[v.severity] !== undefined) counts[v.severity]++; });
@@ -617,7 +625,6 @@ function renderResults(url, data) {
     pillsEl.appendChild(p);
   });
 
-  // Filter buttons
   const filterRow = document.getElementById('filterRow');
   filterRow.innerHTML = '';
   const filters = ['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
@@ -636,7 +643,6 @@ function renderResults(url, data) {
 
 function setFilter(f, vulns) {
   currentFilter = f;
-  // re-render filter btns
   document.querySelectorAll('.filter-btn').forEach((b, i) => {
     const labels = ['ALL','CRITICAL','HIGH','MEDIUM','LOW','INFO'];
     b.className = 'filter-btn' + (labels[i] === f ? ' active-' + labels[i].toLowerCase() : '');
@@ -675,7 +681,7 @@ function renderVulns(vulns) {
       <div class="vuln-body">
         <div class="vuln-body-section">
           <div class="vb-label">// CVSS スコア</div>
-          <span class="cvss-badge" style="color:${cvssColor}">${v.cvss.toFixed(1)}</span>
+          <span class="cvss-badge" style="color:${cvssColor}">${typeof v.cvss === 'number' ? v.cvss.toFixed(1) : v.cvss}</span>
         </div>
         <div class="vuln-body-section">
           <div class="vb-label">// 説明</div>
@@ -700,14 +706,13 @@ function renderVulns(vulns) {
 }
 
 function escHtml(s) {
-  return String(s)
+  return String(s ?? '')
     .replace(/&/g,'&amp;')
     .replace(/</g,'&lt;')
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;');
 }
 
-// Enter key
 document.getElementById('urlInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') startScan();
 });
