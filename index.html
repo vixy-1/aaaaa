@@ -532,19 +532,19 @@ URLのドメインや種類から推測できる業界・用途を考慮して�
   ]
 }
 
-脆弱性は7〜12件含めてください。CRITICALを1〜2件、HIGHを2〜3件、MEDIUMを2〜3件、LOWを1〜2件、INFOを1〜2件程度にしてください。`;
+脆弱性は8件含めてください。CRITICAL 1件、HIGH 2件、MEDIUM 2件、LOW 2件、INFO 1件。`;
 
   let data;
   try {
     const res = await fetch(API_URL, {
       method: "POST",
-      headers: { 
+      headers: {
         "Content-Type": "application/json",
-        "Anthropic-dangerous-direct-browser-access": "true"
+        "Anthropic-Dangerous-Direct-Browser-Access": "true"
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
+        max_tokens: 3000,
         messages: [{ role: "user", content: prompt }]
       })
     });
@@ -571,7 +571,7 @@ URLのドメインや種類から推測できる業界・用途を考慮して�
     btn.disabled = false;
     btn.innerHTML = 'SCAN →';
     progressWrap.classList.remove('active');
-    alert('解析に失敗しました。もう一度お試しください。');
+    const preview = text.substring(0,200); alert('JSONパース失敗。レスポンス先頭: ' + preview + ' ... エラー: ' + e.message);
     return;
   }
 
